@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -14,42 +14,6 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 
-const initialNodes: Node[] = [
-  {
-    id: "1",
-    position: { x: 100, y: 100 },
-    data: { label: "Machine Learning" },
-    type: "input",
-  },
-  {
-    id: "2",
-    position: { x: 300, y: 50 },
-    data: { label: "Supervised Learning" },
-  },
-  {
-    id: "3",
-    position: { x: 300, y: 200 },
-    data: { label: "Neural Networks" },
-  },
-];
-
-const initialEdges: Edge[] = [
-  {
-    id: "e1-2",
-    source: "1",
-    target: "2",
-    animated: true,
-    style: { stroke: "#6366f1" },
-  },
-  {
-    id: "e1-3",
-    source: "1",
-    target: "3",
-    animated: true,
-    style: { stroke: "#6366f1" },
-  },
-];
-
 const EDGE_STYLE = { stroke: "#6366f1" };
 
 function randomInRange(min: number, max: number) {
@@ -57,8 +21,32 @@ function randomInRange(min: number, max: number) {
 }
 
 export default function GraphMindCanvas() {
-  const [nodes, setNodes] = useState(initialNodes);
-  const [edges, setEdges] = useState(initialEdges);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadGraph() {
+      try {
+        const res = await fetch("/api/graph");
+        if (!res.ok) return;
+        const data = (await res.json()) as { nodes: Node[]; edges: Edge[] };
+        if (!cancelled) {
+          setNodes(data.nodes ?? []);
+          setEdges(data.edges ?? []);
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    loadGraph();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) =>
@@ -110,7 +98,14 @@ export default function GraphMindCanvas() {
         </p>
       </header>
 
-      <div className="flex-grow w-full h-full">
+      <div className="relative flex-grow w-full h-full">
+        {isLoading && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-gray-950/80">
+            <p className="text-lg font-medium text-gray-300">
+              Loading graph data...
+            </p>
+          </div>
+        )}
         <ReactFlow
           nodes={nodes}
           edges={edges}
