@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -13,6 +13,7 @@ import ReactFlow, {
   type EdgeChange,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import { getLayoutedElements } from "./utils/layout";
 
 const EDGE_STYLE = { stroke: "#6366f1" };
 const SIDEBAR_WIDTH = "20rem"; // 320px
@@ -48,14 +49,20 @@ export default function GraphMindCanvas() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputText, setInputText] = useState("");
   const [isSynthesizing, setIsSynthesizing] = useState(false);
-  const synthesizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadGraph = useCallback(async () => {
     const res = await fetch("/api/graph");
     if (!res.ok) return;
     const data = (await res.json()) as { nodes: Node[]; edges: Edge[] };
-    setNodes(data.nodes ?? []);
-    setEdges(data.edges ?? []);
+
+    // Pass database nodes through the layout engine on initial load
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+      data.nodes ?? [],
+      data.edges ?? [],
+    );
+
+    setNodes(layoutedNodes);
+    setEdges(layoutedEdges);
   }, []);
 
   useEffect(() => {
@@ -74,12 +81,6 @@ export default function GraphMindCanvas() {
       cancelled = true;
     };
   }, [loadGraph]);
-
-  useEffect(() => {
-    return () => {
-      if (synthesizeTimerRef.current) clearTimeout(synthesizeTimerRef.current);
-    };
-  }, []);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) =>
@@ -120,21 +121,71 @@ export default function GraphMindCanvas() {
     ]);
   }, []);
 
-  const handleSynthesize = useCallback(() => {
+  const handleSynthesize = useCallback(async () => {
     if (!inputText.trim()) return;
-
-    if (synthesizeTimerRef.current) clearTimeout(synthesizeTimerRef.current);
 
     setIsSynthesizing(true);
     setNodes([]);
     setEdges([]);
 
-    synthesizeTimerRef.current = setTimeout(() => {
-      synthesizeTimerRef.current = null;
+    try {
+      const res = await fetch("/api/synthesize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: inputText }),
+      });
+
+      if (!res.ok) {
+        console.log("Synthesize API error:", await res.text());
+        return;
+      }
+
+      const data = (await res.json()) as {
+        nodes: Array<{
+          id: string;
+          label: string;
+          type: string;
+          summary: string;
+        }>;
+        edges: Array<{
+          source: string;
+          target: string;
+          relationship: string;
+        }>;
+      };
+
+      // 1. Map the raw AI data into standard ReactFlow shapes (default x/y to 0)
+      const mappedNodes: Node[] = data.nodes.map((node) => ({
+        id: node.id,
+        position: { x: 0, y: 0 },
+        data: {
+          label: node.label,
+          type: node.type,
+          summary: node.summary,
+        },
+      }));
+
+      const mappedEdges: Edge[] = data.edges.map((edge, index) => ({
+        id: `e-${edge.source}-${edge.target}-${index}`,
+        source: edge.source,
+        target: edge.target,
+        label: edge.relationship,
+        style: EDGE_STYLE,
+      }));
+
+      // 2. Push the mapped shapes through the Auto-Layout Engine
+      const { nodes: layoutedNodes, edges: layoutedEdges } =
+        getLayoutedElements(mappedNodes, mappedEdges);
+
+      // 3. Render the perfectly spaced graph
+      setNodes(layoutedNodes);
+      setEdges(layoutedEdges);
+    } catch (error) {
+      console.log("Synthesize failed:", error);
+    } finally {
       setIsSynthesizing(false);
-      void loadGraph();
-    }, 2000);
-  }, [inputText, loadGraph]);
+    }
+  }, [inputText]);
 
   return (
     <main className="flex h-screen w-screen flex-col bg-gray-950">
