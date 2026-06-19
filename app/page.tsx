@@ -15,7 +15,7 @@ import ReactFlow, {
   type EdgeChange,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { getLayoutedElements } from "./utils/layout";
+import { getLayoutedElements } from "./utils/graphLayout";
 
 const EDGE_STYLE = { stroke: "#6366f1" };
 const SIDEBAR_WIDTH = "20rem"; // 320px
