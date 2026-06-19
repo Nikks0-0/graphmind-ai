@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { groq } from "@ai-sdk/groq"; // <-- Official Provider
+import { groq } from "@ai-sdk/groq";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
@@ -48,6 +48,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const text = body.text ?? body.content ?? body.input;
+    const graphId = body.graphId; // <-- Extract the active session ID
 
     if (!text || typeof text !== "string" || !text.trim()) {
       return NextResponse.json(
@@ -56,14 +57,21 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!graphId) {
+      return NextResponse.json(
+        { error: "Graph ID is required to save session data." },
+        { status: 400 },
+      );
+    }
+
     // 2. Generate Graph Data via official Groq provider
     const { object } = await generateObject({
-      model: groq("llama-3.3-70b-versatile"), // Auto-uses GROQ_API_KEY from .env
+      model: groq("llama-3.3-70b-versatile"),
       system: SYSTEM_PROMPT,
       prompt: text,
       providerOptions: {
         groq: {
-          structuredOutputs: false, // <-- THE MAGIC FIX: Bypasses the json_schema crash
+          structuredOutputs: false,
         },
       },
       schema: z.object({
@@ -85,7 +93,7 @@ export async function POST(request: Request) {
       }),
     });
 
-    // 3. Remap string IDs to valid Postgres UUIDs
+    // 3. Remap string IDs to valid Postgres UUIDs and inject graph_id
     const idMap: Record<string, string> = {};
 
     const sanitizedNodes = object.nodes.map((node) => {
@@ -94,21 +102,23 @@ export async function POST(request: Request) {
 
       return {
         id: secureUuid,
+        graph_id: graphId, // <-- Bind to session
         label: node.label,
         type: node.type,
         summary: node.summary,
-        position_x: Math.random() * 400 + 100, // Random layout bounds
+        position_x: Math.random() * 400 + 100,
         position_y: Math.random() * 400 + 100,
       };
     });
 
     const sanitizedEdges = object.edges
       .map((edge) => ({
+        graph_id: graphId, // <-- Bind to session
         source: idMap[edge.source],
         target: idMap[edge.target],
         relationship: edge.relationship,
       }))
-      .filter((edge) => edge.source && edge.target); // Ensure no broken links
+      .filter((edge) => edge.source && edge.target);
 
     // 4. Save to Supabase Postgres
     if (sanitizedNodes.length > 0) {

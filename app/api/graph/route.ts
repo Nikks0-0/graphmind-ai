@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type DbNode = {
   id: string;
+  graph_id: string; // <-- Added graph_id
   label: string;
   type: string | null;
   summary: string | null;
@@ -12,6 +13,7 @@ type DbNode = {
 
 type DbEdge = {
   id?: string;
+  graph_id: string; // <-- Added graph_id
   source: string;
   target: string;
   relationship: string | null;
@@ -41,7 +43,16 @@ function toReactFlowEdge(row: DbEdge, index: number) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // <-- Pass request object
+  const { searchParams } = new URL(request.url);
+  const graphId = searchParams.get("graphId");
+
+  // If no graphId is provided, return an empty canvas
+  if (!graphId) {
+    return NextResponse.json({ nodes: [], edges: [] });
+  }
+
   const supabase = createServerSupabaseClient();
 
   if (!supabase) {
@@ -54,9 +65,10 @@ export async function GET() {
     );
   }
 
+  // Filter queries explicitly by the active graphId
   const [nodesResult, edgesResult] = await Promise.all([
-    supabase.from("nodes").select("*"),
-    supabase.from("edges").select("*"),
+    supabase.from("nodes").select("*").eq("graph_id", graphId),
+    supabase.from("edges").select("*").eq("graph_id", graphId),
   ]);
 
   if (nodesResult.error) {
